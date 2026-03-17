@@ -136,51 +136,57 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Генерируем случайные логин/пароль для панели
-XUI_USER="admin"
+# Генерируем случайные данные для панели
+XUI_PORT=$(shuf -i 20000-60000 -n 1)  # Случайный порт
+XUI_USER=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 10)
 XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
-XUI_PORT=$(shuf -i 10000-65000 -n 1)  # Случайный порт для панели
 
-# Устанавливаем 3X-UI
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) << EOF
-$XUI_PORT
-$XUI_USER
-$XUI_PASSWORD
-$XUI_PASSWORD
+# Устанавливаем 3X-UI (неинтерактивно через expect или предварительную настройку)
+print_step "Устанавливаем 3X-UI..."
+
+# Скачиваем скрипт установки
+wget -O /tmp/xui-install.sh https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh
+chmod +x /tmp/xui-install.sh
+
+# Устанавливаем expect для автоматизации
+apt-get install -y expect
+
+# Создаем expect-скрипт для автоматического ответа на вопросы
+cat > /tmp/xui-install.exp <<EOF
+#!/usr/bin/expect
+set timeout 60
+spawn /tmp/xui-install.sh
+expect "Please set port"
+send "$XUI_PORT\r"
+expect "Please set username"
+send "$XUI_USER\r"
+expect "Please set password"
+send "$XUI_PASSWORD\r"
+expect "Please confirm password"
+send "$XUI_PASSWORD\r"
+expect eof
 EOF
+
+chmod +x /tmp/xui-install.exp
+/tmp/xui-install.exp
 
 # Открываем порты в firewall
 if command -v ufw &> /dev/null; then
     print_step "Открываем порты для 3X-UI..."
     ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    ufw allow 8448/tcp comment 'V2Ray VLESS'  # Порт для подключений
+    ufw allow 8448/tcp comment 'V2Ray'
 fi
 
-# Ждем запуска панели
+# Ждем запуска
 sleep 5
 
-# Получаем информацию о панели
-XUI_INFO=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null || echo "")
-
-# Записываем информацию о 3X-UI
+# Записываем информацию
 {
     echo "=== 3X-UI (V2Ray) ==="
     echo "Веб-интерфейс: http://$SERVER_IP:$XUI_PORT"
     echo "Логин: $XUI_USER"
     echo "Пароль: $XUI_PASSWORD"
-    echo ""
-    echo "🔧 Как настроить клиента:"
-    echo "1. Зайдите в веб-интерфейс по ссылке выше"
-    echo "2. Нажмите '➕ Добавить' → выберите протокол (рекомендую VLESS + XTLS + Reality)"
-    echo "3. Настройте:"
-    echo "   - Порт: 8448 (или любой свободный)"
-    echo "   - SNI: www.microsoft.com (или любой популярный сайт)"
-    echo "   - Нажмите 'Сгенерировать' для ключей"
-    echo "4. Сохраните и получите ссылку/QR-код для подключения"
-    echo ""
-    echo "📱 Клиенты для телефона:"
-    echo "   Android: V2rayNG, NekoBox"
-    echo "   iOS: Streisand, FoXray, V2Box"
+    echo "Для HTTPS добавьте SSL в настройках панели"
     echo ""
 } >> $INFO_FILE
 
