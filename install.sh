@@ -128,10 +128,13 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем WireGuard VPN..."
 
-# Пароль для веб-интерфейса (можно сгенерировать или задать)
+# Пароль для веб-интерфейса
 WG_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
 
-# Добавляем сервис в docker-compose.yml
+# Сначала удаляем последнюю строку с volumes из файла (чтобы добавить её позже)
+sed -i '$d' /opt/vps-infra/docker-compose.yml
+
+# Добавляем сервис WireGuard (без новой секции volumes)
 cat >> /opt/vps-infra/docker-compose.yml <<EOF
 
   wireguard:
@@ -159,10 +162,11 @@ cat >> /opt/vps-infra/docker-compose.yml <<EOF
       - wireguard-data:/etc/wireguard
 
 volumes:
+  proxy-data:
   wireguard-data:
 EOF
 
-# Перезапускаем docker-compose с новым сервисом
+# Перезапускаем docker-compose
 cd /opt/vps-infra
 docker-compose up -d
 
