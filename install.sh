@@ -135,15 +135,37 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Открываем порт 80 (на всякий случай)
+# Открываем порт 80
 if command -v ufw &> /dev/null; then
     ufw allow 80/tcp comment 'HTTP'
 fi
 
-# Скачиваем последнюю версию напрямую с GitHub
-print_step "Скачиваем 3X-UI..."
-LATEST_VERSION=$(curl -s https://api.github.com/repos/MHSanaei/3x-ui/releases/latest | grep "tag_name" | cut -d '"' -f 4)
-wget -O /tmp/3x-ui.tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${LATEST_VERSION}/3x-ui-linux-amd64-${LATEST_VERSION}.tar.gz
+# Получаем последнюю версию правильно
+print_step "Определяем последнюю версию 3X-UI..."
+LATEST_VERSION=$(curl -s https://api.github.com/repos/MHSanaei/3x-ui/releases/latest | grep "tag_name" | cut -d '"' -f 4 | sed 's/v//')
+
+if [ -z "$LATEST_VERSION" ]; then
+    print_warning "Не удалось определить версию, используем v2.9.4"
+    LATEST_VERSION="2.9.4"
+fi
+
+print_step "Скачиваем 3X-UI версии $LATEST_VERSION..."
+
+# Формируем правильное имя файла
+DOWNLOAD_URL="https://github.com/MHSanaei/3x-ui/releases/download/v${LATEST_VERSION}/3x-ui-linux-amd64-v${LATEST_VERSION}.tar.gz"
+
+# Пробуем скачать
+if wget -O /tmp/3x-ui.tar.gz "$DOWNLOAD_URL"; then
+    print_step "✅ Скачивание успешно"
+else
+    # Если не получилось, пробуем другой формат имени
+    print_warning "Не удалось скачать, пробуем другой формат..."
+    DOWNLOAD_URL="https://github.com/MHSanaei/3x-ui/releases/download/v${LATEST_VERSION}/3x-ui-linux-amd64-${LATEST_VERSION}.tar.gz"
+    wget -O /tmp/3x-ui.tar.gz "$DOWNLOAD_URL" || {
+        print_error "Не удалось скачать 3X-UI"
+        exit 1
+    }
+fi
 
 # Распаковываем
 cd /tmp
@@ -153,7 +175,7 @@ chmod +x 3x-ui
 # Создаем директорию для установки
 mkdir -p /usr/local/x-ui/bin
 
-# Копируем бинарник и создаем структуру
+# Копируем бинарник
 cp 3x-ui /usr/local/x-ui/
 ln -sf /usr/local/x-ui/3x-ui /usr/local/bin/x-ui
 
@@ -169,24 +191,29 @@ WorkingDirectory=/usr/local/x-ui
 ExecStart=/usr/local/x-ui/3x-ui
 Restart=always
 RestartSec=5
+User=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Генерируем случайные данные для панели
+# Генерируем случайные данные
+SERVER_IP=$(curl -4 -s ifconfig.me)
 XUI_PORT=$(shuf -i 20000-60000 -n 1)
 XUI_USER=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 10)
 XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
 WEB_PATH=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
 
-# Создаем конфиг с нашими данными
+# Создаем директорию для конфига
+mkdir -p /usr/local/x-ui/bin
+
+# Создаем конфиг
 cat > /usr/local/x-ui/bin/config.json <<EOF
 {
   "port": $XUI_PORT,
   "username": "$XUI_USER",
   "password": "$XUI_PASSWORD",
-  "webBasePath": "/$WEB_PATH",
+  "webBasePath": "$WEB_PATH",
   "ssl": {
     "enabled": false,
     "port": 443
@@ -199,25 +226,40 @@ systemctl daemon-reload
 systemctl enable x-ui
 systemctl start x-ui
 
-# Открываем порты
-if command -v ufw &> /dev/null; then
-    ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    ufw allow 8448/tcp comment 'V2Ray Port'
+# Ждем запуска
+sleep 3
+
+# Проверяем, запустился ли
+if systemctl is-active --quiet x-ui; then
+    print_step "✅ 3X-UI успешно запущен"
+    
+    # Открываем порты
+    if command -v ufw &> /dev/null; then
+        ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
+        ufw allow 8448/tcp comment 'V2Ray Port'
+    fi
+    
+    # Записываем информацию
+    {
+        echo "=== 3X-UI (V2Ray VPN) ==="
+        echo "🌐 Веб-интерфейс: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
+        echo "🔑 Логин: $XUI_USER"
+        echo "🔑 Пароль: $XUI_PASSWORD"
+        echo ""
+        echo "📡 НАСТРОЙКА КЛИЕНТА:"
+        echo "   1. Зайди в панель по ссылке выше"
+        echo "   2. Перейди в 'Входящие подключения'"
+        echo "   3. Нажми '➕ Добавить'"
+        echo "   4. Выбери VLESS + XTLS + Reality"
+        echo "   5. Укажи порт: 8448"
+        echo "   6. SNI: www.microsoft.com"
+        echo "   7. Нажми 'Сгенерировать' и сохрани"
+        echo ""
+    } >> $INFO_FILE
+    
+else
+    print_error "3X-UI не запустился"
 fi
-
-print_step "3X-UI установлен!"
-
-# Выводим информацию
-{
-    echo "=== 3X-UI (V2Ray VPN) ==="
-    echo "Веб-интерфейс: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
-    echo "Логин: $XUI_USER"
-    echo "Пароль: $XUI_PASSWORD"
-    echo ""
-    echo "📡 Для настройки клиента:"
-    echo "   Зайдите в панель и создайте inbound"
-    echo ""
-} >> $INFO_FILE
 
 # ==============================================
 # Настройка firewall
