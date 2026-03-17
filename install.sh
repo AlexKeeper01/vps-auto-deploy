@@ -80,16 +80,19 @@ fi
 
 print_step "Базовая подготовка завершена!"
 
+# ==============================================
+# MTProto Proxy
+# ==============================================
+
 print_step "Настраиваем MTProto Proxy для Telegram..."
 
-SECRET=$(head -c 16 /dev/urandom | xxd -ps)
+MT_SECRET=$(head -c 16 /dev/urandom | xxd -ps)
 SERVER_IP=$(curl -4 -s ifconfig.me)
 
 mkdir -p /opt/vps-infra
 
+# Создаём временный docker-compose только для MTProto
 cat > /opt/vps-infra/docker-compose.yml <<EOF
-version: '3'
-
 services:
   mtproto-proxy:
     image: telegrammessenger/proxy:latest
@@ -98,7 +101,7 @@ services:
     ports:
       - "8443:443"
     environment:
-      - SECRET=$SECRET
+      - SECRET=$MT_SECRET
     volumes:
       - proxy-data:/data
     logging:
@@ -118,24 +121,45 @@ docker-compose up -d
     echo "=== Telegram MTProto Proxy ==="
     echo "Сервер: $SERVER_IP"
     echo "Порт: 8443"
-    echo "Секрет: $SECRET"
+    echo "Секрет: $MT_SECRET"
     echo "Ссылка для подключения:"
-    echo "tg://proxy?server=$SERVER_IP&port=8443&secret=$SECRET"
+    echo "tg://proxy?server=$SERVER_IP&port=8443&secret=$MT_SECRET"
     echo ""
 } >> $INFO_FILE
 
 print_step "MTProto Proxy установлен на порту 8443"
+
+# ==============================================
+# WireGuard VPN
+# ==============================================
 
 print_step "Настраиваем WireGuard VPN..."
 
 # Пароль для веб-интерфейса
 WG_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
 
-# Получаем текущий IP
-SERVER_IP=$(curl -4 -s ifconfig.me)
+# Останавливаем MTProto перед обновлением конфига
+cd /opt/vps-infra
+docker-compose down
 
-# Создаём временный файл с WireGuard конфигурацией
-cat > /tmp/wireguard-add.yml <<EOF
+# Полностью перезаписываем docker-compose.yml с обоими сервисами
+cat > /opt/vps-infra/docker-compose.yml <<EOF
+services:
+  mtproto-proxy:
+    image: telegrammessenger/proxy:latest
+    container_name: telegram-proxy
+    restart: always
+    ports:
+      - "8443:443"
+    environment:
+      - SECRET=$MT_SECRET
+    volumes:
+      - proxy-data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   wireguard:
     image: weejewel/wg-easy:latest
@@ -160,16 +184,13 @@ cat > /tmp/wireguard-add.yml <<EOF
       - WG_PERSISTENT_KEEPALIVE=25
     volumes:
       - wireguard-data:/etc/wireguard
+
+volumes:
+  proxy-data:
+  wireguard-data:
 EOF
 
-# Вставляем WireGuard перед последней строкой (volumeS)
-sed -i '$ r /tmp/wireguard-add.yml' /opt/vps-infra/docker-compose.yml
-
-# Добавляем том wireguard-data в секцию volumes
-sed -i '/volumes:/a \ \ wireguard-data:' /opt/vps-infra/docker-compose.yml
-
-# Запускаем обновлённый docker-compose
-cd /opt/vps-infra
+# Запускаем оба сервиса
 docker-compose up -d
 
 # Открываем порты в firewall
@@ -194,13 +215,21 @@ fi
 
 print_step "WireGuard VPN установлен на порту 51821"
 
+# ==============================================
+# Настройка firewall
+# ==============================================
+
 if command -v ufw &> /dev/null; then
     print_step "Настраиваем фаервол..."
     ufw allow 22/tcp comment 'SSH'
     ufw allow 8443/tcp comment 'MTProto Proxy'
     ufw --force enable
-    print_step "Фаервол настроен, порт 8443 открыт"
+    print_step "Фаервол настроен"
 fi
+
+# ==============================================
+# Финальный вывод
+# ==============================================
 
 print_step "========================================="
 print_step "УСТАНОВКА ЗАВЕРШЕНА!"
