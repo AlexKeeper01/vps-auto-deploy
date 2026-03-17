@@ -34,3 +34,50 @@ fi
 
 print_step "Начинаем установку VPS Infrastructure"
 print_step "Проверяем систему..."
+
+# Проверяем версию Ubuntu
+UBUNTU_VERSION=$(lsb_release -rs)
+print_step "Обнаружена Ubuntu версии $UBUNTU_VERSION"
+
+if [[ "$UBUNTU_VERSION" < "20.04" ]]; then
+    print_error "Требуется Ubuntu 20.04 или новее"
+    exit 1
+fi
+
+# Обновляем пакеты
+print_step "Обновляем список пакетов..."
+apt-get update
+
+# Устанавливаем необходимые пакеты
+print_step "Устанавливаем необходимые пакеты..."
+apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    software-properties-common \
+    git \
+    wget \
+    ufw
+
+# Устанавливаем Docker
+if ! command -v docker &> /dev/null; then
+    print_step "Устанавливаем Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    print_step "Docker установлен"
+else
+    print_step "Docker уже установлен"
+fi
+
+# Устанавливаем Docker Compose
+if ! command -v docker-compose &> /dev/null; then
+    print_step "Устанавливаем Docker Compose..."
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    print_step "Docker Compose установлен"
+else
+    print_step "Docker Compose уже установлен"
+fi
+
+print_step "Базовая подготовка завершена!"
+print_step "На следующем шаге настроим прокси для Telegram..."
