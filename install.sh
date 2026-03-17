@@ -102,7 +102,7 @@ print_step "Настраиваем MTProto Proxy для Telegram..."
 
 # Генерируем секретный ключ
 SECRET=$(head -c 16 /dev/urandom | xxd -ps)
-SERVER_IP=$(curl -s ifconfig.me)
+SERVER_IP=$(curl -4 -s ifconfig.me)
 
 # Создаём директорию для конфигов
 mkdir -p /opt/vps-infra
