@@ -43,7 +43,7 @@ cleanup() {
     fi
     
     # Удаляем временные файлы
-    rm -f /tmp/get-docker.sh /tmp/install.sh /tmp/3xui-install.exp 2>/dev/null || true
+    rm -f /tmp/get-docker.sh 2>/dev/null || true
     
     print_error "Установка прервана. Проверьте логи выше."
     exit 1
@@ -83,15 +83,9 @@ check_port() {
     return 0
 }
 
-# Генерация пароля
-generate_password() {
-    openssl rand -base64 16 | tr -dc 'a-zA-Z0-9!@#$%^&*' | head -c16
-}
-
 # Получение IP сервера
 get_server_ip() {
     local ip=""
-    # Пробуем разные методы получения IP
     ip=$(curl -4 -s --max-time 5 ifconfig.me 2>/dev/null)
     if [ -z "$ip" ]; then
         ip=$(curl -4 -s --max-time 5 icanhazip.com 2>/dev/null)
@@ -122,11 +116,11 @@ SERVER_IP=$(get_server_ip)
 clear
 echo -e "${GREEN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         УСТАНОВКА VPS INFRASTRUCTURE (MTProto + 3X-UI)      ║"
+echo "║              УСТАНОВКА MTProto PROXY                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-print_step "Начинаем установку VPS Infrastructure"
+print_step "Начинаем установку MTProto Proxy"
 print_step "Информация будет сохраняться в $INFO_FILE"
 
 # Создание рабочей директории
@@ -139,7 +133,7 @@ cd /opt/vps-infra
 
 print_step "Настройка системы..."
 
-# Настройка часового пояса (не критично если не получится)
+# Настройка часового пояса
 timedatectl set-timezone Europe/Moscow 2>/dev/null || print_warning "Не удалось установить часовой пояс"
 
 # Создание swap если мало RAM
@@ -166,15 +160,11 @@ apt-get install -y -qq \
     ca-certificates \
     curl \
     software-properties-common \
-    git \
     wget \
     ufw \
     xxd \
     net-tools \
-    sqlite3 \
-    expect \
     openssl \
-    jq \
     netcat-openbsd > /dev/null 2>&1
 
 print_success "Система настроена"
@@ -276,11 +266,6 @@ else
 fi
 
 # ==============================================
-# 3X-UI (V2Ray Panel)
-# ==============================================
-
-
-# ==============================================
 # Настройка firewall
 # ==============================================
 
@@ -293,17 +278,13 @@ if command -v ufw &> /dev/null; then
     
     # Открытие портов
     ufw allow 22/tcp comment 'SSH'
-    ufw allow 80/tcp comment 'HTTP'
-    ufw allow 443/tcp comment 'HTTPS'
     ufw allow 8443/tcp comment 'MTProto Proxy'
-    ufw allow 8448/tcp comment 'V2Ray Clients'
-    ufw allow 2053/tcp comment 'V2Ray alternative'
     
-    # Включение firewall (неинтерактивно)
+    # Включение firewall
     ufw --force enable > /dev/null 2>&1
     
     print_success "Firewall настроен"
-    ufw status numbered | head -n 10
+    ufw status numbered | head -n 5
 else
     print_warning "UFW не найден, пропускаем настройку firewall"
 fi
@@ -363,23 +344,7 @@ echo -e "${NC}"
 
 # Вывод информации
 if [ -f "$INFO_FILE" ]; then
-    while IFS= read -r line; do
-        if [[ $line == "==="* ]]; then
-            echo -e "\n${YELLOW}$line${NC}"
-        elif [[ $line == "Ссылка"* ]]; then
-            echo -e "${CYAN}$line${NC}"
-        elif [[ $line == *"⚠️"* ]]; then
-            echo -e "${RED}$line${NC}"
-        elif [[ $line == *":"* ]] && [[ ! $line == "http"* ]]; then
-            key=$(echo "$line" | cut -d':' -f1)
-            value=$(echo "$line" | cut -d':' -f2-)
-            echo -e "  ${BLUE}$key${NC}:${GREEN}$value${NC}"
-        elif [[ $line == "http"* ]]; then
-            echo -e "  ${CYAN}$line${NC}"
-        else
-            echo "  $line"
-        fi
-    done < "$INFO_FILE"
+    cat "$INFO_FILE"
 fi
 
 echo ""
@@ -389,7 +354,6 @@ echo -e "  ${GREEN}docker ps${NC} - список запущенных конте
 echo -e "  ${GREEN}cd /opt/vps-infra && docker compose logs${NC} - логи MTProto"
 echo ""
 echo -e "${YELLOW}📁 Полная информация сохранена в:${NC} $INFO_FILE"
-echo -e "${RED}⚠️  Обязательно сохраните пароли в безопасном месте!${NC}"
 echo ""
 
 # Проверка статуса сервисов
@@ -398,12 +362,6 @@ if docker ps 2>/dev/null | grep -q telegram-proxy; then
     print_success "MTProto Proxy: работает"
 else
     print_warning "MTProto Proxy: не запущен"
-fi
-
-if systemctl is-active --quiet x-ui 2>/dev/null; then
-    print_success "3X-UI Panel: работает"
-else
-    print_warning "3X-UI Panel: проверьте статус вручную (возможно используется другая система инициализации)"
 fi
 
 print_step "Готово! Сервер настроен и готов к работе."
