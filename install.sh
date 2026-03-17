@@ -135,13 +135,6 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Открываем порт 80 (нужен для процесса установки)
-if command -v ufw &> /dev/null; then
-    print_step "Открываем порт 80 для установщика 3X-UI..."
-    ufw allow 80/tcp comment 'HTTP for 3X-UI setup'
-    # Не включаем --force, чтобы не перезапускать фаервол сейчас
-fi
-
 # Удаляем предыдущую установку, если была
 if systemctl list-units --full -all | grep -Fq "x-ui.service"; then
     systemctl stop x-ui
@@ -170,29 +163,35 @@ spawn /tmp/xui-install.sh
 expect {
     "Do you want to continue" { 
         send "y\r"
-        puts $output_file "Answered: y to continue"
+        puts $output_file "Step: Continue"
         exp_continue
     }
     "Would you like to customize the Panel Port settings" {
         send "n\r"
-        puts $output_file "Answered: n to port customization"
+        puts $output_file "Step: Port customization skipped"
         exp_continue
     }
-    "Please press any key to continue" {
+    "Choose SSL certificate setup method" {
+        # Выбираем опцию 2 для IP (или просто Enter - default 2)
+        send "2\r"
+        puts $output_file "Step: SSL option 2 selected (IP)"
+        exp_continue
+    }
+    -re "Please press any key to continue.*" {
         send "\r"
-        puts $output_file "Pressed any key"
+        puts $output_file "Step: Pressed any key"
         exp_continue
     }
     "Panel Installation Complete" {
-        puts $output_file "Installation complete"
+        puts $output_file "Step: Installation completed"
         exp_continue
     }
     timeout {
-        puts $output_file "Timeout occurred"
+        puts $output_file "ERROR: Timeout"
         exit 1
     }
     eof {
-        puts $output_file "EOF reached"
+        puts $output_file "Step: EOF reached"
         close $output_file
     }
 }
