@@ -279,53 +279,6 @@ fi
 # 3X-UI (V2Ray Panel)
 # ==============================================
 
-print_step "Установка 3X-UI VPN..."
-
-print_info "📌 СЕЙЧАС ЗАПУСТИТСЯ УСТАНОВЩИК 3X-UI"
-print_info "⚠️  ВНИМАНИЕ: Установка происходит в ручном режиме"
-echo ""
-print_info "🔧 Что нужно делать:"
-echo "   1. На первый вопрос 'Do you want to continue' введите: y"
-echo "   2. На вопрос о порте панели - можете нажать Enter (оставить по умолчанию)"
-echo "   3. На вопрос о пути - можете нажать Enter (оставить по умолчанию)"
-echo "   4. Придумайте логин и пароль для входа в панель (или оставьте сгенерированные)"
-echo ""
-print_info "🔑 ОБЯЗАТЕЛЬНО СОХРАНИТЕ ДАННЫЕ, КОТОРЫЕ БУДУТ ПОКАЗАНЫ В КОНЦЕ!"
-echo ""
-print_info "⏎ Нажмите Enter чтобы продолжить установку..."
-read -p ""
-
-# Запуск установщика
-print_step "Запускаю установщик 3X-UI..."
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
-
-# Просто открываем порты (без проверки)
-print_step "Открываю порты для подключений в firewall..."
-if command -v ufw &> /dev/null; then
-    for port in 8448 2053 2083 2096 8080 8880 54321; do
-        ufw allow $port/tcp comment "V2Ray $port" 2>/dev/null || true
-    done
-    print_success "Порты открыты"
-fi
-
-# Сохраняем информацию (без if)
-{
-    echo "=== 3X-UI Panel ==="
-    echo "📌 Данные для входа в панель управления:"
-    echo "   Они были показаны выше в терминале при установке"
-    echo ""
-    echo "📋 Если вы забыли данные для входа:"
-    echo "   sudo x-ui settings           - показать логин/пароль/порт"
-    echo "   sudo cat /etc/x-ui/config.json | grep -E 'username|password|webPort|webPath'"
-    echo ""
-    echo "🔌 Порты для подключений (открыты в firewall):"
-    echo "   8448, 2053, 2083, 2096, 8080, 8880, 54321"
-    echo "   (можете использовать любой из них для клиентов)"
-    echo ""
-} >> "$INFO_FILE"
-
-# Очистка временных файлов
-rm -f /tmp/install.sh 2>/dev/null || true
 
 # ==============================================
 # Настройка firewall
