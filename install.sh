@@ -177,6 +177,11 @@ expect {
         puts $output_file "Step: SSL option 2 selected (IP)"
         exp_continue
     }
+    "Do you have an IPv6 address to include? (leave empty to skip):" {
+        send "\r"  # Просто Enter
+        puts $output_file "Step: IPv6 skipped"
+        exp_continue
+    }
     -re "Please press any key to continue.*" {
         send "\r"
         puts $output_file "Step: Pressed any key"
