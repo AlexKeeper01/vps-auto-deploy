@@ -140,66 +140,24 @@ if command -v ufw &> /dev/null; then
     ufw allow 80/tcp comment 'HTTP for setup'
 fi
 
-# Скачиваем и запускаем официальный установщик
-print_step "Запускаем официальный установщик 3X-UI..."
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) << EOF
-y
-n
-2
+# Просто запускаем установщик
+print_step "Запускаю установщик 3X-UI..."
+print_step "📌 Отвечай на вопросы:"
+echo "   1. y     - продолжить"
+echo "   2. n     - не менять порт"
+echo "   3. 2     - SSL для IP"
+echo "   4. Enter - пропустить IPv6"
+echo ""
 
-n
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
-EOF
-
-print_step "Установка завершена, собираем данные..."
-
-# Ждем, пока все запустится
-sleep 10
-
-# Получаем IP сервера
-SERVER_IP=$(curl -4 -s ifconfig.me)
-
-# Пытаемся найти порт, логин и пароль
-# Сначала ищем в логе установки
-if [ -f "/tmp/x-ui-install.log" ]; then
-    XUI_PORT=$(grep -oP 'Port: \K\d+' /tmp/x-ui-install.log | head -1)
-    XUI_USER=$(grep -oP 'Username: \K\S+' /tmp/x-ui-install.log | head -1)
-    XUI_PASSWORD=$(grep -oP 'Password: \K\S+' /tmp/x-ui-install.log | head -1)
-    WEB_PATH=$(grep -oP 'WebBasePath: \K\S+' /tmp/x-ui-install.log | head -1)
-fi
-
-# Если не нашли в логе, смотрим через netstat
-if [ -z "$XUI_PORT" ]; then
-    XUI_PORT=$(netstat -tulpn 2>/dev/null | grep x-ui | grep LISTEN | head -1 | awk '{print $4}' | awk -F: '{print $NF}')
-fi
-
-# Если порт нашли, открываем его
-if [ ! -z "$XUI_PORT" ]; then
-    if command -v ufw &> /dev/null; then
-        ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    fi
-fi
-
-# Открываем стандартный порт для клиентов (можно будет настроить позже)
+# Открываем порт для клиентов
 if command -v ufw &> /dev/null; then
-    ufw allow 8448/tcp comment 'V2Ray Clients'
+    ufw allow 8448/tcp comment 'V2Ray Port'
 fi
 
-# Записываем всё, что нашли (или хотя бы то, что знаем)
-{
-    echo "=== 3X-UI (V2Ray VPN) ==="
-    echo "🌐 Веб-интерфейс: http://$SERVER_IP:${XUI_PORT:-порт неизвестен}${WEB_PATH:-}"
-    echo "🔑 Логин: ${XUI_USER:-admin}"
-    echo "🔑 Пароль: ${XUI_PASSWORD:-admin}"
-    echo ""
-    echo "📡 Информация для подключения клиентов:"
-    echo "   1. Зайди в панель по ссылке выше"
-    echo "   2. Перейди в 'Входящие подключения' → '➕ Добавить'"
-    echo "   3. Выбери протокол (VLESS + XTLS + Reality)"
-    echo "   4. Укажи порт: 8448 (или любой свободный)"
-    echo "   5. Нажми 'Сгенерировать' и сохрани"
-    echo ""
-} >> $INFO_FILE
+print_step "✅ Установка завершена!"
+print_step "📝 Данные для входа были показаны выше в терминале"
 
 # ==============================================
 # Настройка firewall
