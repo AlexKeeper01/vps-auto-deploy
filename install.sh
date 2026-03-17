@@ -281,82 +281,51 @@ fi
 
 print_step "Установка 3X-UI VPN..."
 
-# Генерация паролей
-PANEL_USER="admin"
-PANEL_PASS=$(generate_password)
-PANEL_PORT="8448"
-PANEL_PATH="/$(openssl rand -hex 4)"
+print_info "📌 СЕЙЧАС ЗАПУСТИТСЯ УСТАНОВЩИК 3X-UI"
+print_info "⚠️  ВНИМАНИЕ: Установка происходит в ручном режиме"
+echo ""
+print_info "🔧 Что нужно делать:"
+echo "   1. На первый вопрос 'Do you want to continue' введите: y"
+echo "   2. На вопрос о порте панели - можете нажать Enter (оставить по умолчанию)"
+echo "   3. На вопрос о пути - можете нажать Enter (оставить по умолчанию)"
+echo "   4. Придумайте логин и пароль для входа в панель (или оставьте сгенерированные)"
+echo ""
+print_info "🔑 ОБЯЗАТЕЛЬНО СОХРАНИТЕ ДАННЫЕ, КОТОРЫЕ БУДУТ ПОКАЗАНЫ В КОНЦЕ!"
+echo ""
+print_info "⏎ Нажмите Enter чтобы продолжить установку..."
+read -p ""
 
-print_info "Будут использованы следующие данные:"
-print_info "Логин: $PANEL_USER"
-print_info "Пароль: $PANEL_PASS"
-print_info "Порт панели: $PANEL_PORT"
-print_info "Путь: $PANEL_PATH"
+# Запуск установщика
+print_step "Запускаю установщик 3X-UI..."
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
-# Скачивание установщика
-cd /tmp
-wget -q https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh -O install.sh
-chmod +x install.sh
-
-# Создание expect скрипта для автоматической установки
-cat > /tmp/3xui-install.exp <<EOF
-#!/usr/bin/expect -f
-set timeout 120
-set username "$PANEL_USER"
-set password "$PANEL_PASS"
-set panel_port "$PANEL_PORT"
-set panel_path "$PANEL_PATH"
-
-log_user 0
-spawn bash /tmp/install.sh
-
-expect {
-    "Do you want to continue" { send "y\r"; exp_continue }
-    "Please set port" { send "\r"; exp_continue }
-    "Set path with / at the start of path" { send "$panel_path\r"; exp_continue }
-    "Please set username" { send "$username\r"; exp_continue }
-    "Please set password" { send "$password\r"; exp_continue }
-    "Please confirm password" { send "$password\r"; exp_continue }
-    timeout { exit 1 }
-    eof
-}
-EOF
-
-# Запуск автоматической установки
-chmod +x /tmp/3xui-install.exp
-if /tmp/3xui-install.exp; then
-    print_success "3X-UI установлен"
-    
-    # Открытие портов в firewall
-    if command -v ufw &> /dev/null; then
-        ufw allow "$PANEL_PORT"/tcp comment '3X-UI Panel' 2>/dev/null || true
-        ufw allow 8448/tcp comment 'V2Ray Clients' 2>/dev/null || true
-        ufw allow 2053/tcp comment 'V2Ray alternative' 2>/dev/null || true
-    fi
-    
-    # Сохранение информации
-    {
-        echo "=== 3X-UI Panel ==="
-        echo "URL панели: http://$SERVER_IP:$PANEL_PORT$PANEL_PATH"
-        echo "Логин: $PANEL_USER"
-        echo "Пароль: $PANEL_PASS"
-        echo "Порт для подключений: 8448 (и 2053 как альтернатива)"
-        echo "⚠️  Сохраните эти данные в безопасном месте!"
-        echo ""
-    } >> "$INFO_FILE"
-    
-    # Создание резервной копии конфигурации
-    if [ -f "/etc/3x-ui/config.json" ]; then
-        cp /etc/3x-ui/config.json /root/3x-ui-config.backup
-        print_success "Конфигурация сохранена в /root/3x-ui-config.backup"
-    fi
-else
-    print_error "Ошибка при установке 3X-UI"
-    print_info "Попробуйте установить вручную: bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)"
+# Просто открываем порты (без проверки)
+print_step "Открываю порты для подключений в firewall..."
+if command -v ufw &> /dev/null; then
+    for port in 8448 2053 2083 2096 8080 8880 54321; do
+        ufw allow $port/tcp comment "V2Ray $port" 2>/dev/null || true
+    done
+    print_success "Порты открыты"
 fi
 
+# Сохраняем информацию (без if)
+{
+    echo "=== 3X-UI Panel ==="
+    echo "📌 Данные для входа в панель управления:"
+    echo "   Они были показаны выше в терминале при установке"
+    echo ""
+    echo "📋 Если вы забыли данные для входа:"
+    echo "   sudo x-ui settings           - показать логин/пароль/порт"
+    echo "   sudo cat /etc/x-ui/config.json | grep -E 'username|password|webPort|webPath'"
+    echo ""
+    echo "🔌 Порты для подключений (открыты в firewall):"
+    echo "   8448, 2053, 2083, 2096, 8080, 8880, 54321"
+    echo "   (можете использовать любой из них для клиентов)"
+    echo ""
+} >> "$INFO_FILE"
+
 # Очистка временных файлов
-rm -f /tmp/install.sh /tmp/3xui-install.exp 2>/dev/null || true
+rm -f /tmp/install.sh 2>/dev/null || true
 
 # ==============================================
 # Настройка firewall
