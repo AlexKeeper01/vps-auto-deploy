@@ -32,8 +32,19 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Создаём файл для информации
+INFO_FILE="/root/vps-infra-info.txt"
+{
+    echo "=== VPS INFRASTRUCTURE INFORMATION ==="
+    echo "Создано: $(date)"
+    echo "Хост: $(hostname)"
+    echo "IP сервера: $(curl -s ifconfig.me)"
+    echo "========================================"
+    echo ""
+} > $INFO_FILE
+
 print_step "Начинаем установку VPS Infrastructure"
-print_step "Проверяем систему..."
+print_step "Информация будет сохраняться в $INFO_FILE"
 
 # Проверяем версию Ubuntu
 UBUNTU_VERSION=$(lsb_release -rs)
@@ -57,7 +68,9 @@ apt-get install -y \
     software-properties-common \
     git \
     wget \
-    ufw
+    ufw \
+    xxd \
+    net-tools
 
 # Устанавливаем Docker
 if ! command -v docker &> /dev/null; then
@@ -80,4 +93,84 @@ else
 fi
 
 print_step "Базовая подготовка завершена!"
-print_step "На следующем шаге настроим прокси для Telegram..."
+
+# ==============================================
+# Установка MTProto Proxy для Telegram
+# ==============================================
+
+print_step "Настраиваем MTProto Proxy для Telegram..."
+
+# Генерируем секретный ключ
+SECRET=$(head -c 16 /dev/urandom | xxd -ps)
+SERVER_IP=$(curl -s ifconfig.me)
+
+# Создаём директорию для конфигов
+mkdir -p /opt/vps-infra
+
+# Создаём docker-compose.yml для прокси
+cat > /opt/vps-infra/docker-compose.yml <<EOF
+version: '3'
+
+services:
+  mtproto-proxy:
+    image: telegrammessenger/proxy:latest
+    container_name: telegram-proxy
+    restart: always
+    ports:
+      - "443:443"
+    environment:
+      - SECRET=$SECRET
+    volumes:
+      - proxy-data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  proxy-data:
+EOF
+
+# Запускаем прокси
+cd /opt/vps-infra
+docker-compose up -d
+
+# Записываем информацию о Telegram прокси
+{
+    echo "=== Telegram MTProto Proxy ==="
+    echo "Сервер: $SERVER_IP"
+    echo "Порт: 443"
+    echo "Секрет: $SECRET"
+    echo "Ссылка для подключения:"
+    echo "tg://proxy?server=$SERVER_IP&port=443&secret=$SECRET"
+    echo ""
+} >> $INFO_FILE
+
+print_step "MTProto Proxy установлен"
+
+# Настраиваем фаервол
+if command -v ufw &> /dev/null; then
+    print_step "Настраиваем фаервол..."
+    ufw allow 22/tcp comment 'SSH'
+    ufw allow 443/tcp comment 'MTProto Proxy'
+    ufw --force enable
+    print_step "Фаервол настроен"
+fi
+
+# ==============================================
+# ФИНАЛЬНЫЙ ВЫВОД
+# ==============================================
+
+print_step "========================================="
+print_step "УСТАНОВКА ЗАВЕРШЕНА!"
+print_step "========================================="
+echo ""
+
+# Показываем содержимое файла с информацией
+cat $INFO_FILE
+
+echo ""
+print_step "Вся информация сохранена в файле: $INFO_FILE"
+print_step "Вы можете скопировать его на свой компьютер:"
+echo "scp root@$SERVER_IP:$INFO_FILE ./"
