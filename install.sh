@@ -59,7 +59,9 @@ apt-get install -y \
     ufw \
     xxd \
     net-tools \
-    sqlite3
+    sqlite3 \
+    expect \
+    jq
 
 if ! command -v docker &> /dev/null; then
     print_step "Устанавливаем Docker..."
@@ -92,7 +94,6 @@ SERVER_IP=$(curl -4 -s ifconfig.me)
 
 mkdir -p /opt/vps-infra
 
-# Создаём docker-compose только для MTProto
 cat > /opt/vps-infra/docker-compose.yml <<EOF
 services:
   mtproto-proxy:
@@ -131,66 +132,118 @@ docker-compose up -d
 print_step "MTProto Proxy установлен на порту 8443"
 
 # ==============================================
-# 3X-UI (V2Ray Panel)
+# 3X-UI (V2Ray Panel) - Полностью автоматическая установка
 # ==============================================
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Генерируем случайные данные для панели
-XUI_PORT=$(shuf -i 20000-60000 -n 1)  # Случайный порт
-XUI_USER=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 10)
-XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
-
-# Устанавливаем 3X-UI (неинтерактивно через expect или предварительную настройку)
-print_step "Устанавливаем 3X-UI..."
+# Удаляем предыдущую установку, если была
+if systemctl list-units --full -all | grep -Fq "x-ui.service"; then
+    systemctl stop x-ui
+    systemctl disable x-ui
+    rm -rf /usr/local/x-ui
+    rm -rf /etc/x-ui
+fi
 
 # Скачиваем скрипт установки
 wget -O /tmp/xui-install.sh https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh
 chmod +x /tmp/xui-install.sh
 
-# Устанавливаем expect для автоматизации
-apt-get install -y expect
+# Создаем временный файл для лога установки
+TEMP_LOG=$(mktemp)
 
-# Создаем expect-скрипт для автоматического ответа на вопросы
-cat > /tmp/xui-install.exp <<EOF
-#!/usr/bin/expect
-set timeout 60
+print_step "Запускаем установку 3X-UI (установщик сам сгенерирует данные)..."
+
+# Запускаем установку с автоматическим ответом "n" на вопрос о кастомизации порта
+/usr/bin/expect << 'EOF' > $TEMP_LOG 2>&1
+set timeout 120
 spawn /tmp/xui-install.sh
-expect "Please set port"
-send "$XUI_PORT\r"
-expect "Please set username"
-send "$XUI_USER\r"
-expect "Please set password"
-send "$XUI_PASSWORD\r"
-expect "Please confirm password"
-send "$XUI_PASSWORD\r"
-expect eof
+expect {
+    "Do you want to continue" { send "y\r"; exp_continue }
+    "Would you like to customize the Panel Port settings" { send "n\r"; exp_continue }
+    eof
+}
 EOF
 
-chmod +x /tmp/xui-install.exp
-/tmp/xui-install.exp
+# Ждем завершения установки
+sleep 5
+
+print_step "Анализируем данные установки..."
+
+# Извлекаем данные из лога установки
+XUI_INFO=$(grep -A 20 "Panel Installation Complete" $TEMP_LOG)
+
+# Парсим данные
+XUI_USER=$(echo "$XUI_INFO" | grep "Username:" | awk '{print $2}' | tr -d '\r' | head -1)
+XUI_PASSWORD=$(echo "$XUI_INFO" | grep "Password:" | awk '{print $2}' | tr -d '\r' | head -1)
+XUI_PORT=$(echo "$XUI_INFO" | grep "Port:" | awk '{print $2}' | tr -d '\r' | head -1)
+WEB_PATH=$(echo "$XUI_INFO" | grep "WebBasePath:" | awk '{print $2}' | tr -d '\r' | head -1)
+ACCESS_URL=$(echo "$XUI_INFO" | grep "Access URL:" | awk '{print $3}' | tr -d '\r' | head -1)
+
+# Если не нашли в логе, пробуем из конфига
+if [ -z "$XUI_PORT" ] && [ -f "/usr/local/x-ui/bin/config.json" ]; then
+    XUI_PORT=$(grep -o '"port":[0-9]*' /usr/local/x-ui/bin/config.json | head -1 | grep -o '[0-9]*')
+    XUI_USER=$(grep -o '"username":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
+    XUI_PASSWORD=$(grep -o '"password":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
+    WEB_PATH=$(grep -o '"webBasePath":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
+    ACCESS_URL="http://$SERVER_IP:$XUI_PORT$WEB_PATH"
+fi
+
+# Проверяем, запущен ли сервис
+if systemctl is-active --quiet x-ui; then
+    print_step "3X-UI успешно установлен"
+else
+    print_warning "3X-UI не запустился автоматически, пробуем запустить..."
+    systemctl start x-ui
+    sleep 2
+fi
 
 # Открываем порты в firewall
 if command -v ufw &> /dev/null; then
     print_step "Открываем порты для 3X-UI..."
     ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    ufw allow 8448/tcp comment 'V2Ray'
+    ufw allow 8448/tcp comment 'V2Ray Port'
 fi
 
-# Ждем запуска
-sleep 5
-
-# Записываем информацию
+# Записываем информацию о 3X-UI
 {
-    echo "=== 3X-UI (V2Ray) ==="
-    echo "Веб-интерфейс: http://$SERVER_IP:$XUI_PORT"
-    echo "Логин: $XUI_USER"
-    echo "Пароль: $XUI_PASSWORD"
-    echo "Для HTTPS добавьте SSL в настройках панели"
+    echo "=== 3X-UI (V2Ray VPN) ==="
+    echo "🔧 ДАННЫЕ СГЕНЕРИРОВАНЫ УСТАНОВЩИКОМ:"
+    echo ""
+    echo "🌐 ВЕБ-ИНТЕРФЕЙС УПРАВЛЕНИЯ:"
+    if [ ! -z "$ACCESS_URL" ]; then
+        echo "   URL: $ACCESS_URL"
+    else
+        echo "   URL: http://$SERVER_IP:$XUI_PORT$WEB_PATH"
+    fi
+    echo "   Логин: $XUI_USER"
+    echo "   Пароль: $XUI_PASSWORD"
+    echo "   Порт: $XUI_PORT"
+    if [ ! -z "$WEB_PATH" ] && [ "$WEB_PATH" != "null" ] && [ "$WEB_PATH" != "/" ]; then
+        echo "   Секретный путь: $WEB_PATH"
+    fi
+    echo ""
+    echo "📡 НАСТРОЙКА КЛИЕНТА (VLESS + XTLS + Reality):"
+    echo "   1. Зайдите в веб-интерфейс по ссылке выше"
+    echo "   2. Перейдите в раздел 'Входящие подключения' (Inbounds)"
+    echo "   3. Нажмите '➕ Добавить'"
+    echo "   4. Выберите протокол: VLESS + XTLS + Reality"
+    echo "   5. Настройте параметры:"
+    echo "      - Порт: 8448 (или любой свободный)"
+    echo "      - SNI: www.microsoft.com (или любой популярный сайт)"
+    echo "      - Нажмите 'Сгенерировать' для ключей"
+    echo "   6. Сохраните и получите ссылку для клиента"
+    echo ""
+    echo "📱 КЛИЕНТЫ ДЛЯ ТЕЛЕФОНА:"
+    echo "   Android: V2rayNG, NekoBox (скачать с официального сайта)"
+    echo "   iOS: Streisand, FoXray, V2Box (в App Store)"
+    echo ""
+    echo "⚠️ ВАЖНО: Эти данные были сгенерированы автоматически!"
+    echo "   Сохраните их в надежном месте, они больше нигде не появятся."
     echo ""
 } >> $INFO_FILE
 
-print_step "3X-UI (V2Ray) установлен на порту $XUI_PORT"
+print_step "3X-UI (V2Ray) установлен"
 
 # ==============================================
 # Настройка firewall
@@ -200,7 +253,8 @@ if command -v ufw &> /dev/null; then
     print_step "Настраиваем фаервол..."
     ufw allow 22/tcp comment 'SSH'
     ufw allow 8443/tcp comment 'MTProto Proxy'
-    ufw allow 8448/tcp comment 'V2Ray'
+    ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
+    ufw allow 8448/tcp comment 'V2Ray Port'
     ufw --force enable
     print_step "Фаервол настроен"
 fi
@@ -217,4 +271,6 @@ echo ""
 cat $INFO_FILE
 
 echo ""
-print_step "Вся информация сохранена в файле: $INFO_FILE"
+print_step "✅ Вся информация сохранена в файле: $INFO_FILE"
+print_step "📋 Скопируйте эти данные и сохраните в надежном месте!"
+print_step "🌐 Для входа в панель 3X-UI используйте ссылку из файла выше"
