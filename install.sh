@@ -117,7 +117,7 @@ services:
     container_name: telegram-proxy
     restart: always
     ports:
-      - "443:443"
+      - "8443:443"
     environment:
       - SECRET=$SECRET
     volumes:
@@ -140,22 +140,22 @@ docker-compose up -d
 {
     echo "=== Telegram MTProto Proxy ==="
     echo "Сервер: $SERVER_IP"
-    echo "Порт: 443"
+    echo "Порт: 8443"
     echo "Секрет: $SECRET"
     echo "Ссылка для подключения:"
-    echo "tg://proxy?server=$SERVER_IP&port=443&secret=$SECRET"
+    echo "tg://proxy?server=$SERVER_IP&port=8443&secret=$SECRET"
     echo ""
 } >> $INFO_FILE
 
-print_step "MTProto Proxy установлен"
+print_step "MTProto Proxy установлен на порту 8443"
 
 # Настраиваем фаервол
 if command -v ufw &> /dev/null; then
     print_step "Настраиваем фаервол..."
     ufw allow 22/tcp comment 'SSH'
-    ufw allow 443/tcp comment 'MTProto Proxy'
+    ufw allow 8443/tcp comment 'MTProto Proxy'
     ufw --force enable
-    print_step "Фаервол настроен"
+    print_step "Фаервол настроен, порт 8443 открыт"
 fi
 
 # ==============================================
