@@ -135,121 +135,89 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Удаляем предыдущую установку, если была
-if systemctl list-units --full -all | grep -Fq "x-ui.service"; then
-    systemctl stop x-ui
-    systemctl disable x-ui
-    rm -rf /usr/local/x-ui
-    rm -rf /etc/x-ui
+# Открываем порт 80 (на всякий случай)
+if command -v ufw &> /dev/null; then
+    ufw allow 80/tcp comment 'HTTP'
 fi
 
-# Скачиваем скрипт установки
-wget -O /tmp/xui-install.sh https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh
-chmod +x /tmp/xui-install.sh
+# Скачиваем последнюю версию напрямую с GitHub
+print_step "Скачиваем 3X-UI..."
+LATEST_VERSION=$(curl -s https://api.github.com/repos/MHSanaei/3x-ui/releases/latest | grep "tag_name" | cut -d '"' -f 4)
+wget -O /tmp/3x-ui.tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${LATEST_VERSION}/3x-ui-linux-amd64-${LATEST_VERSION}.tar.gz
 
-# Устанавливаем expect (если еще не установлен)
-apt-get install -y expect
+# Распаковываем
+cd /tmp
+tar -xzf 3x-ui.tar.gz
+chmod +x 3x-ui
 
-print_step "Запускаем автоматическую установку 3X-UI..."
+# Создаем директорию для установки
+mkdir -p /usr/local/x-ui/bin
 
-# Создаем expect скрипт для автоматической установки
-cat > /tmp/xui-install.exp <<'EOF'
-#!/usr/bin/expect
-set timeout 120
-set output_file [open /tmp/xui-install.log w]
+# Копируем бинарник и создаем структуру
+cp 3x-ui /usr/local/x-ui/
+ln -sf /usr/local/x-ui/3x-ui /usr/local/bin/x-ui
 
-spawn /tmp/xui-install.sh
+# Создаем systemd сервис
+cat > /etc/systemd/system/x-ui.service <<EOF
+[Unit]
+Description=3X-UI Service
+After=network.target
 
-expect {
-    "Do you want to continue" { 
-        send "y\r"
-        puts $output_file "Step: Continue"
-        exp_continue
-    }
-    "Would you like to customize the Panel Port settings" {
-        send "n\r"
-        puts $output_file "Step: Port customization skipped"
-        exp_continue
-    }
-    "Choose SSL certificate setup method" {
-        # Выбираем опцию 2 для IP (или просто Enter - default 2)
-        send "2\r"
-        puts $output_file "Step: SSL option 2 selected (IP)"
-        exp_continue
-    }
-    "Do you have an IPv6 address to include? (leave empty to skip):" {
-        send "\r"  # Просто Enter
-        puts $output_file "Step: IPv6 skipped"
-        exp_continue
-    }
-    -re "Please press any key to continue.*" {
-        send "\r"
-        puts $output_file "Step: Pressed any key"
-        exp_continue
-    }
-    "Panel Installation Complete" {
-        puts $output_file "Step: Installation completed"
-        exp_continue
-    }
-    timeout {
-        puts $output_file "ERROR: Timeout"
-        exit 1
-    }
-    eof {
-        puts $output_file "Step: EOF reached"
-        close $output_file
-    }
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/x-ui
+ExecStart=/usr/local/x-ui/3x-ui
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Генерируем случайные данные для панели
+XUI_PORT=$(shuf -i 20000-60000 -n 1)
+XUI_USER=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 10)
+XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
+WEB_PATH=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
+
+# Создаем конфиг с нашими данными
+cat > /usr/local/x-ui/bin/config.json <<EOF
+{
+  "port": $XUI_PORT,
+  "username": "$XUI_USER",
+  "password": "$XUI_PASSWORD",
+  "webBasePath": "/$WEB_PATH",
+  "ssl": {
+    "enabled": false,
+    "port": 443
+  }
 }
 EOF
 
-chmod +x /tmp/xui-install.exp
+# Запускаем сервис
+systemctl daemon-reload
+systemctl enable x-ui
+systemctl start x-ui
 
-# Запускаем expect скрипт
-/tmp/xui-install.exp
-
-# Ждем немного для завершения
-sleep 3
-
-print_step "Установка 3X-UI завершена"
-
-# Показываем результаты установки
-echo ""
-print_step "=== РЕЗУЛЬТАТ УСТАНОВКИ 3X-UI ==="
-echo ""
-
-# Извлекаем данные из лога
-if [ -f "/tmp/xui-install.log" ]; then
-    echo "📋 Лог установки:"
-    grep -A 15 "Panel Installation Complete" /tmp/xui-install.log || echo "   Секция завершения не найдена в логе"
-fi
-
-# Проверяем конфиг
-if [ -f "/usr/local/x-ui/bin/config.json" ]; then
-    echo ""
-    echo "🔧 Конфигурация из файла:"
-    grep -o '"port":[0-9]*' /usr/local/x-ui/bin/config.json | head -1
-    grep -o '"username":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1
-    echo "   (пароль зашифрован в конфиге)"
-fi
-
-# Проверяем порт через netstat
-XUI_PORT=$(netstat -tulpn 2>/dev/null | grep x-ui | grep LISTEN | head -1 | awk '{print $4}' | cut -d':' -f2)
-if [ ! -z "$XUI_PORT" ]; then
-    echo ""
-    echo "🌐 Панель запущена на порту: $XUI_PORT"
-    echo "   URL: http://$SERVER_IP:$XUI_PORT"
-fi
-
-echo ""
-
-# Открываем порты в firewall
+# Открываем порты
 if command -v ufw &> /dev/null; then
-    print_step "Открываем порты для 3X-UI..."
-    if [ ! -z "$XUI_PORT" ]; then
-        ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    fi
+    ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
     ufw allow 8448/tcp comment 'V2Ray Port'
 fi
+
+print_step "3X-UI установлен!"
+
+# Выводим информацию
+{
+    echo "=== 3X-UI (V2Ray VPN) ==="
+    echo "Веб-интерфейс: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
+    echo "Логин: $XUI_USER"
+    echo "Пароль: $XUI_PASSWORD"
+    echo ""
+    echo "📡 Для настройки клиента:"
+    echo "   Зайдите в панель и создайте inbound"
+    echo ""
+} >> $INFO_FILE
 
 # ==============================================
 # Настройка firewall
