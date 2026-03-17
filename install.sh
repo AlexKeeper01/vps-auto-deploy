@@ -135,6 +135,13 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
+# Открываем порт 80 (нужен для процесса установки)
+if command -v ufw &> /dev/null; then
+    print_step "Открываем порт 80 для установщика 3X-UI..."
+    ufw allow 80/tcp comment 'HTTP for 3X-UI setup'
+    # Не включаем --force, чтобы не перезапускать фаервол сейчас
+fi
+
 # Удаляем предыдущую установку, если была
 if systemctl list-units --full -all | grep -Fq "x-ui.service"; then
     systemctl stop x-ui
