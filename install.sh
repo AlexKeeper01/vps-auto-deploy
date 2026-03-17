@@ -33,7 +33,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Создаём файл для информации
-INFO_FILE="/root/vps-infra-info.txt"
+INFO_FILE="/root/vps-info.txt"
 {
     echo "=== VPS INFRASTRUCTURE INFORMATION ==="
     echo "Создано: $(date)"
@@ -172,5 +172,3 @@ cat $INFO_FILE
 
 echo ""
 print_step "Вся информация сохранена в файле: $INFO_FILE"
-print_step "Вы можете скопировать его на свой компьютер:"
-echo "scp root@$SERVER_IP:$INFO_FILE ./"
