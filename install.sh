@@ -133,129 +133,71 @@ print_step "MTProto Proxy установлен на порту 8443"
 # 3X-UI (V2Ray Panel) - Простая установка
 # ==============================================
 
-print_step "Настраиваем 3X-UI (V2Ray)..."
+print_step "Устанавливаем 3X-UI VPN..."
 
-# Открываем порт 80 (для SSL и установки)
+# Открываем порт 80 (нужен для установки)
 if command -v ufw &> /dev/null; then
-    ufw allow 80/tcp comment 'HTTP'
+    ufw allow 80/tcp comment 'HTTP for setup'
 fi
 
-# Скачиваем последнюю версию
-print_step "Скачиваем 3X-UI..."
-cd /tmp
-rm -rf x-ui* 2>/dev/null
+# Скачиваем и запускаем официальный установщик
+print_step "Запускаем официальный установщик 3X-UI..."
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) << EOF
+y
+n
+2
 
-wget -O x-ui-linux-amd64.tar.gz https://github.com/MHSanaei/3x-ui/releases/latest/download/x-ui-linux-amd64.tar.gz
+n
 
-if [ $? -ne 0 ] || [ ! -f "x-ui-linux-amd64.tar.gz" ]; then
-    print_error "Не удалось скачать 3X-UI"
-    exit 1
-fi
-
-print_step "✅ Скачивание успешно"
-
-# Распаковываем
-tar -xzf x-ui-linux-amd64.tar.gz
-
-# Создаем директории
-mkdir -p /usr/local/x-ui/bin
-
-# Копируем файлы
-cp -r x-ui/* /usr/local/x-ui/ 2>/dev/null
-chmod +x /usr/local/x-ui/x-ui 2>/dev/null
-chmod +x /usr/local/x-ui/bin/xray-linux-* 2>/dev/null
-
-# Создаем symlink
-ln -sf /usr/local/x-ui/x-ui /usr/local/bin/x-ui
-
-# Создаем минимальный конфиг (без указания порта — пусть сам генерирует)
-cat > /usr/local/x-ui/bin/config.json <<EOF
-{
-  "ssl": {
-    "enabled": false
-  }
-}
 EOF
 
-# Создаем systemd сервис
-cat > /etc/systemd/system/x-ui.service <<EOF
-[Unit]
-Description=3X-UI Service
-After=network.target
+print_step "Установка завершена, собираем данные..."
 
-[Service]
-Type=simple
-WorkingDirectory=/usr/local/x-ui
-ExecStart=/usr/local/x-ui/x-ui
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Запускаем сервис
-systemctl daemon-reload
-systemctl enable x-ui
-systemctl start x-ui
-
-# Ждем генерации конфига
-print_step "Ожидаем генерации конфига 3X-UI..."
+# Ждем, пока все запустится
 sleep 10
 
-# Определяем порт, логин и пароль (которые сгенерировал сам 3X-UI)
-print_step "Считываем данные из конфига..."
+# Получаем IP сервера
+SERVER_IP=$(curl -4 -s ifconfig.me)
 
-if [ -f "/usr/local/x-ui/bin/config.json" ]; then
-    # Извлекаем данные из JSON
-    XUI_PORT=$(grep -o '"port":[0-9]*' /usr/local/x-ui/bin/config.json | head -1 | grep -o '[0-9]*')
-    XUI_USER=$(grep -o '"username":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
-    XUI_PASSWORD=$(grep -o '"password":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
-    WEB_PATH=$(grep -o '"webBasePath":"[^"]*"' /usr/local/x-ui/bin/config.json | head -1 | cut -d'"' -f4)
+# Пытаемся найти порт, логин и пароль
+# Сначала ищем в логе установки
+if [ -f "/tmp/x-ui-install.log" ]; then
+    XUI_PORT=$(grep -oP 'Port: \K\d+' /tmp/x-ui-install.log | head -1)
+    XUI_USER=$(grep -oP 'Username: \K\S+' /tmp/x-ui-install.log | head -1)
+    XUI_PASSWORD=$(grep -oP 'Password: \K\S+' /tmp/x-ui-install.log | head -1)
+    WEB_PATH=$(grep -oP 'WebBasePath: \K\S+' /tmp/x-ui-install.log | head -1)
 fi
 
-# Если не нашли в JSON, пробуем через netstat
+# Если не нашли в логе, смотрим через netstat
 if [ -z "$XUI_PORT" ]; then
     XUI_PORT=$(netstat -tulpn 2>/dev/null | grep x-ui | grep LISTEN | head -1 | awk '{print $4}' | awk -F: '{print $NF}')
 fi
 
-# Если всё еще нет — ставим заглушку
-if [ -z "$XUI_PORT" ]; then
-    XUI_PORT="не определен (проверьте вручную)"
-    XUI_USER="admin"
-    XUI_PASSWORD="admin"
-    WEB_PATH=""
-fi
-
-# Открываем порт в фаерволе (если нашли)
-if [ "$XUI_PORT" != "не определен (проверьте вручную)" ]; then
+# Если порт нашли, открываем его
+if [ ! -z "$XUI_PORT" ]; then
     if command -v ufw &> /dev/null; then
         ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
     fi
 fi
 
-# Открываем порт для клиентов
+# Открываем стандартный порт для клиентов (можно будет настроить позже)
 if command -v ufw &> /dev/null; then
-    ufw allow 8448/tcp comment 'V2Ray Port'
+    ufw allow 8448/tcp comment 'V2Ray Clients'
 fi
 
-# Записываем информацию
+# Записываем всё, что нашли (или хотя бы то, что знаем)
 {
     echo "=== 3X-UI (V2Ray VPN) ==="
-    echo "🌐 Веб-интерфейс: http://$SERVER_IP:$XUI_PORT$WEB_PATH"
-    echo "🔑 Логин: $XUI_USER"
-    echo "🔑 Пароль: $XUI_PASSWORD"
-    echo "📁 Путь: $WEB_PATH"
+    echo "🌐 Веб-интерфейс: http://$SERVER_IP:${XUI_PORT:-порт неизвестен}${WEB_PATH:-}"
+    echo "🔑 Логин: ${XUI_USER:-admin}"
+    echo "🔑 Пароль: ${XUI_PASSWORD:-admin}"
     echo ""
-    echo "📡 НАСТРОЙКА КЛИЕНТА:"
+    echo "📡 Информация для подключения клиентов:"
     echo "   1. Зайди в панель по ссылке выше"
-    echo "   2. Перейди в 'Входящие подключения' (Inbounds)"
-    echo "   3. Нажми '➕ Добавить'"
-    echo "   4. Выбери VLESS + XTLS + Reality"
-    echo "   5. Укажи порт: 8448"
-    echo "   6. SNI: www.microsoft.com"
-    echo "   7. Нажми 'Сгенерировать' и сохрани"
+    echo "   2. Перейди в 'Входящие подключения' → '➕ Добавить'"
+    echo "   3. Выбери протокол (VLESS + XTLS + Reality)"
+    echo "   4. Укажи порт: 8448 (или любой свободный)"
+    echo "   5. Нажми 'Сгенерировать' и сохрани"
     echo ""
 } >> $INFO_FILE
 
