@@ -58,7 +58,8 @@ apt-get install -y \
     wget \
     ufw \
     xxd \
-    net-tools
+    net-tools \
+    sqlite3
 
 if ! command -v docker &> /dev/null; then
     print_step "Устанавливаем Docker..."
@@ -91,7 +92,7 @@ SERVER_IP=$(curl -4 -s ifconfig.me)
 
 mkdir -p /opt/vps-infra
 
-# Создаём временный docker-compose только для MTProto
+# Создаём docker-compose только для MTProto
 cat > /opt/vps-infra/docker-compose.yml <<EOF
 services:
   mtproto-proxy:
@@ -130,90 +131,60 @@ docker-compose up -d
 print_step "MTProto Proxy установлен на порту 8443"
 
 # ==============================================
-# WireGuard VPN
+# 3X-UI (V2Ray Panel)
 # ==============================================
 
-print_step "Настраиваем WireGuard VPN..."
+print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Пароль для веб-интерфейса
-WG_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
+# Генерируем случайные логин/пароль для панели
+XUI_USER="admin"
+XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
+XUI_PORT=$(shuf -i 10000-65000 -n 1)  # Случайный порт для панели
 
-# Останавливаем MTProto перед обновлением конфига
-cd /opt/vps-infra
-docker-compose down
-
-# Полностью перезаписываем docker-compose.yml с обоими сервисами
-cat > /opt/vps-infra/docker-compose.yml <<EOF
-services:
-  mtproto-proxy:
-    image: telegrammessenger/proxy:latest
-    container_name: telegram-proxy
-    restart: always
-    ports:
-      - "8443:443"
-    environment:
-      - SECRET=$MT_SECRET
-    volumes:
-      - proxy-data:/data
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  wireguard:
-    image: weejewel/wg-easy:latest
-    container_name: wireguard
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv4.ip_forward=1
-    restart: always
-    ports:
-      - "51820:51820/udp"
-      - "51821:51821/tcp"
-    environment:
-      - WG_HOST=${SERVER_IP}
-      - PASSWORD=${WG_PASSWORD}
-      - WG_PORT=51820
-      - WG_DEFAULT_ADDRESS=10.8.0.x
-      - WG_DEFAULT_DNS=1.1.1.1
-      - WG_ALLOWED_IPS=0.0.0.0/0
-      - WG_PERSISTENT_KEEPALIVE=25
-    volumes:
-      - wireguard-data:/etc/wireguard
-
-volumes:
-  proxy-data:
-  wireguard-data:
+# Устанавливаем 3X-UI
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) << EOF
+$XUI_PORT
+$XUI_USER
+$XUI_PASSWORD
+$XUI_PASSWORD
 EOF
-
-# Запускаем оба сервиса
-docker-compose up -d
 
 # Открываем порты в firewall
 if command -v ufw &> /dev/null; then
-    print_step "Открываем порты для WireGuard..."
-    ufw allow 51820/udp comment 'WireGuard'
-    ufw allow 51821/tcp comment 'WireGuard Web UI'
+    print_step "Открываем порты для 3X-UI..."
+    ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
+    ufw allow 8448/tcp comment 'V2Ray VLESS'  # Порт для подключений
 fi
 
-# Записываем информацию о WireGuard
+# Ждем запуска панели
+sleep 5
+
+# Получаем информацию о панели
+XUI_INFO=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null || echo "")
+
+# Записываем информацию о 3X-UI
 {
-    echo "=== WireGuard VPN ==="
-    echo "Веб-интерфейс: http://$SERVER_IP:51821"
-    echo "Пароль: $WG_PASSWORD"
-    echo "Порт WireGuard: 51820/udp"
-    echo "Для подключения:"
+    echo "=== 3X-UI (V2Ray) ==="
+    echo "Веб-интерфейс: http://$SERVER_IP:$XUI_PORT"
+    echo "Логин: $XUI_USER"
+    echo "Пароль: $XUI_PASSWORD"
+    echo ""
+    echo "🔧 Как настроить клиента:"
     echo "1. Зайдите в веб-интерфейс по ссылке выше"
-    echo "2. Создайте нового клиента (New Client)"
-    echo "3. Скачайте конфиг или отсканируйте QR-код"
+    echo "2. Нажмите '➕ Добавить' → выберите протокол (рекомендую VLESS + XTLS + Reality)"
+    echo "3. Настройте:"
+    echo "   - Порт: 8448 (или любой свободный)"
+    echo "   - SNI: www.microsoft.com (или любой популярный сайт)"
+    echo "   - Нажмите 'Сгенерировать' для ключей"
+    echo "4. Сохраните и получите ссылку/QR-код для подключения"
+    echo ""
+    echo "📱 Клиенты для телефона:"
+    echo "   Android: V2rayNG, NekoBox"
+    echo "   iOS: Streisand, FoXray, V2Box"
     echo ""
 } >> $INFO_FILE
 
-print_step "WireGuard VPN установлен на порту 51821"
+print_step "3X-UI (V2Ray) установлен на порту $XUI_PORT"
 
 # ==============================================
 # Настройка firewall
@@ -223,6 +194,7 @@ if command -v ufw &> /dev/null; then
     print_step "Настраиваем фаервол..."
     ufw allow 22/tcp comment 'SSH'
     ufw allow 8443/tcp comment 'MTProto Proxy'
+    ufw allow 8448/tcp comment 'V2Ray'
     ufw --force enable
     print_step "Фаервол настроен"
 fi
