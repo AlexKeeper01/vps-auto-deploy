@@ -131,11 +131,11 @@ print_step "Настраиваем WireGuard VPN..."
 # Пароль для веб-интерфейса
 WG_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
 
-# Сначала удаляем последнюю строку с volumes из файла (чтобы добавить её позже)
-sed -i '$d' /opt/vps-infra/docker-compose.yml
+# Получаем текущий IP
+SERVER_IP=$(curl -4 -s ifconfig.me)
 
-# Добавляем сервис WireGuard (без новой секции volumes)
-cat >> /opt/vps-infra/docker-compose.yml <<EOF
+# Создаём временный файл с WireGuard конфигурацией
+cat > /tmp/wireguard-add.yml <<EOF
 
   wireguard:
     image: weejewel/wg-easy:latest
@@ -160,13 +160,15 @@ cat >> /opt/vps-infra/docker-compose.yml <<EOF
       - WG_PERSISTENT_KEEPALIVE=25
     volumes:
       - wireguard-data:/etc/wireguard
-
-volumes:
-  proxy-data:
-  wireguard-data:
 EOF
 
-# Перезапускаем docker-compose
+# Вставляем WireGuard перед последней строкой (volumeS)
+sed -i '$ r /tmp/wireguard-add.yml' /opt/vps-infra/docker-compose.yml
+
+# Добавляем том wireguard-data в секцию volumes
+sed -i '/volumes:/a \ \ wireguard-data:' /opt/vps-infra/docker-compose.yml
+
+# Запускаем обновлённый docker-compose
 cd /opt/vps-infra
 docker-compose up -d
 
