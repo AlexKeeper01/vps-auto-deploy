@@ -135,16 +135,19 @@ print_step "MTProto Proxy установлен на порту 8443"
 
 print_step "Настраиваем 3X-UI (V2Ray)..."
 
-# Открываем порт 80
+# Открываем порт 80 (на всякий случай)
 if command -v ufw &> /dev/null; then
     ufw allow 80/tcp comment 'HTTP'
 fi
 
-# Скачиваем последнюю версию (правильный URL)
+# Скачиваем последнюю версию
 print_step "Скачиваем 3X-UI..."
-wget -O /tmp/x-ui-linux-amd64.tar.gz https://github.com/MHSanaei/3x-ui/releases/latest/download/x-ui-linux-amd64.tar.gz
+cd /tmp
+rm -rf x-ui* 2>/dev/null
 
-if [ $? -ne 0 ]; then
+wget -O x-ui-linux-amd64.tar.gz https://github.com/MHSanaei/3x-ui/releases/latest/download/x-ui-linux-amd64.tar.gz
+
+if [ $? -ne 0 ] || [ ! -f "x-ui-linux-amd64.tar.gz" ]; then
     print_error "Не удалось скачать 3X-UI"
     exit 1
 fi
@@ -152,26 +155,35 @@ fi
 print_step "✅ Скачивание успешно"
 
 # Распаковываем
-cd /tmp
 tar -xzf x-ui-linux-amd64.tar.gz
-chmod +x x-ui/x-ui x-ui/bin/xray-linux-* x-ui/x-ui.sh
 
-# Создаем директорию для установки
+# Проверяем, что распаковалось
+if [ ! -d "x-ui" ]; then
+    print_error "Ошибка распаковки: директория x-ui не найдена"
+    exit 1
+fi
+
+# Создаем директории
 mkdir -p /usr/local/x-ui/bin
 
 # Копируем файлы
-cp -r x-ui/* /usr/local/x-ui/
-cp x-ui/x-ui.sh /usr/bin/x-ui
-cp -f x-ui/x-ui.service /etc/systemd/system/
+cp -r x-ui/* /usr/local/x-ui/ 2>/dev/null || {
+    print_error "Ошибка копирования файлов"
+    exit 1
+}
+
+# Делаем файлы исполняемыми
+chmod +x /usr/local/x-ui/x-ui 2>/dev/null
+chmod +x /usr/local/x-ui/bin/xray-linux-* 2>/dev/null
 
 # Генерируем случайные данные
 SERVER_IP=$(curl -4 -s ifconfig.me)
 XUI_PORT=$(shuf -i 20000-60000 -n 1)
-XUI_USER=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 10)
-XUI_PASSWORD=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
-WEB_PATH=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
+XUI_USER=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 8 | head -n 1)
+XUI_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 12 | head -n 1)
+WEB_PATH=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1)
 
-# Настраиваем конфиг
+# Создаем конфиг
 cat > /usr/local/x-ui/bin/config.json <<EOF
 {
   "port": $XUI_PORT,
@@ -185,39 +197,77 @@ cat > /usr/local/x-ui/bin/config.json <<EOF
 }
 EOF
 
+# Создаем symlink для удобства
+ln -sf /usr/local/x-ui/x-ui /usr/local/bin/x-ui
+
+# Создаем systemd сервис
+cat > /etc/systemd/system/x-ui.service <<EOF
+[Unit]
+Description=3X-UI Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/x-ui
+ExecStart=/usr/local/x-ui/x-ui
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Запускаем сервис
 systemctl daemon-reload
 systemctl enable x-ui
 systemctl start x-ui
 
 # Ждем запуска
-sleep 3
+sleep 5
 
-# Открываем порты
-if command -v ufw &> /dev/null; then
-    ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
-    ufw allow 8448/tcp comment 'V2Ray Port'
+# Проверяем статус
+if systemctl is-active --quiet x-ui; then
+    print_step "✅ 3X-UI успешно запущен"
+    
+    # Открываем порты
+    if command -v ufw &> /dev/null; then
+        ufw allow $XUI_PORT/tcp comment '3X-UI Panel'
+        ufw allow 8448/tcp comment 'V2Ray Port'
+    fi
+    
+    # Записываем информацию
+    {
+        echo "=== 3X-UI (V2Ray VPN) ==="
+        echo "🌐 Веб-интерфейс: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
+        echo "🔑 Логин: $XUI_USER"
+        echo "🔑 Пароль: $XUI_PASSWORD"
+        echo ""
+        echo "📡 НАСТРОЙКА КЛИЕНТА:"
+        echo "   1. Зайди в панель по ссылке выше"
+        echo "   2. Перейди в 'Входящие подключения'"
+        echo "   3. Нажми '➕ Добавить'"
+        echo "   4. Выбери VLESS + XTLS + Reality"
+        echo "   5. Укажи порт: 8448"
+        echo "   6. SNI: www.microsoft.com"
+        echo "   7. Нажми 'Сгенерировать' и сохрани"
+        echo ""
+    } >> $INFO_FILE
+    
+    # Показываем данные в консоли
+    print_step "=== ДАННЫЕ ДЛЯ ВХОДА В 3X-UI ==="
+    echo "URL: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
+    echo "User: $XUI_USER"
+    echo "Pass: $XUI_PASSWORD"
+    echo "==================================="
+    
+else
+    print_error "❌ 3X-UI не запустился"
+    journalctl -u x-ui -n 20 --no-pager
 fi
 
-# Записываем информацию
-{
-    echo "=== 3X-UI (V2Ray VPN) ==="
-    echo "🌐 Веб-интерфейс: http://$SERVER_IP:$XUI_PORT/$WEB_PATH"
-    echo "🔑 Логин: $XUI_USER"
-    echo "🔑 Пароль: $XUI_PASSWORD"
-    echo ""
-    echo "📡 НАСТРОЙКА КЛИЕНТА:"
-    echo "   1. Зайди в панель по ссылке выше"
-    echo "   2. Перейди в 'Входящие подключения'"
-    echo "   3. Нажми '➕ Добавить'"
-    echo "   4. Выбери VLESS + XTLS + Reality"
-    echo "   5. Укажи порт: 8448"
-    echo "   6. SNI: www.microsoft.com"
-    echo "   7. Нажми 'Сгенерировать' и сохрани"
-    echo ""
-} >> $INFO_FILE
-
-print_step "✅ 3X-UI успешно установлен на порту $XUI_PORT"
+# Убираем временные файлы
+rm -rf /tmp/x-ui* 2>/dev/null || true
 
 # ==============================================
 # Настройка firewall
