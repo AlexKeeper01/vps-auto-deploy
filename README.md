@@ -60,3 +60,11 @@ sudo ufw allow 443/tcp
 sudo ufw allow 80/tcp
 sudo ufw reload
 ```
+#NextCloud
+```
+sudo snap install nextcloud
+```
+Перейти по ссылке и зарегистрироваться
+```
+http://ваш-ip-адрес
+```
