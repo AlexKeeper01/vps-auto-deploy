@@ -60,7 +60,7 @@ sudo ufw allow 443/tcp
 sudo ufw allow 80/tcp
 sudo ufw reload
 ```
-#NextCloud
+# NextCloud
 ```
 sudo snap install nextcloud
 ```
