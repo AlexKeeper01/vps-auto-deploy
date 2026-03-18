@@ -218,7 +218,7 @@ services:
     image: telegrammessenger/proxy:latest
     container_name: telegram-proxy
     restart: always
-    network: host
+    network_mode: host
     environment:
       - SECRET=$MT_SECRET
     volumes:
