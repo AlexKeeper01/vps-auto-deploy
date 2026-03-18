@@ -68,3 +68,8 @@ sudo snap install nextcloud
 ```
 http://ваш-ip-адрес
 ```
+### Сменить протокол на https
+```
+sudo nextcloud.enable-https self-signed
+sudo snap set nextcloud ports.https=444
+```
