@@ -209,7 +209,7 @@ print_step "Настройка MTProto Proxy для Telegram..."
 # Проверка порта
 if check_port 8443; then
     # Генерация секрета
-    MT_SECRET=$(head -c 16 /dev/urandom | xxd -ps)
+    MT_SECRET="ee$(head -c 15 /dev/urandom | xxd -ps)"
     
     # Создание docker-compose.yml
     cat > /opt/vps-infra/docker-compose.yml <<EOF
