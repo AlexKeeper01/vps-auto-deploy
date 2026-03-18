@@ -221,6 +221,7 @@ services:
     network_mode: host
     environment:
       - SECRET=$MT_SECRET
+      - PORT=8443
     volumes:
       - proxy-data:/data
     logging:
