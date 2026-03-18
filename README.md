@@ -72,4 +72,6 @@ http://ваш-ip-адрес
 ```
 sudo nextcloud.enable-https self-signed
 sudo snap set nextcloud ports.https=444
+sudo ufw allow 444/tcp
+sudo ufw reload
 ```
