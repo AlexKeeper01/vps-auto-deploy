@@ -29,11 +29,11 @@ Choose SSL certificate setup method:
 2. Let's Encrypt for IP Address (6-day validity, auto-renews)
 3. Custom SSL Certificate (Path to existing files)
 Note: Options 1 & 2 require port 80 open. Option 3 requires manual paths.
-Choose an option (default 2 for IP): 3 <- **Выбрать этот вариант**
+Choose an option (default 2 for IP): 3 <- Выбрать этот вариант
 
 ```
 ```
-Please enter domain name certificate issued for: <- **Использовать IP-адрес как имя**
+Please enter domain name certificate issued for: <- Использовать IP-адрес как имя
 Certificate path: /etc/ssl/3xui/panel.crt
 Private key path: /etc/ssl/3xui/panel.key
 ```
