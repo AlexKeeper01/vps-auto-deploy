@@ -43,3 +43,12 @@ sudo ufw allow <ТУТ ПОРТ>/tcp
 sudo x-ui start
 ```
 ### НЕ ЗАБЫВАЕМ СМЕНИТЬ ЛОГИН ПАРОЛЬ
+### Настройка подключения
+```
+Протокол: vless
+Порт: 443
+Security: Reality
+uTLS: chrome
+Target: www.microsoft.com:443
+SNI: www.microsoft.com
+```
