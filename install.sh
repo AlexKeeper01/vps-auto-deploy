@@ -218,8 +218,7 @@ services:
     image: telegrammessenger/proxy:latest
     container_name: telegram-proxy
     restart: always
-    ports:
-      - "8443:443"
+    network: host
     environment:
       - SECRET=$MT_SECRET
     volumes:
@@ -230,7 +229,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "443"]
+      test: ["CMD", "nc", "-z", "localhost", "8443"]
       interval: 30s
       timeout: 10s
       retries: 3
