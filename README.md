@@ -42,4 +42,4 @@ Private key path: /etc/ssl/3xui/panel.key
 sudo ufw allow <ТУТ ПОРТ>/tcp
 sudo x-ui start
 ```
-
+### НЕ ЗАБЫВАЕМ СМЕНИТЬ ЛОГИН ПАРОЛЬ
