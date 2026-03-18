@@ -52,3 +52,11 @@ uTLS: chrome
 Target: www.microsoft.com:443
 SNI: www.microsoft.com
 ```
+Нажать кнопку Get New Cert (или "Get New Keys"). Панель автоматически сгенерирует все необходимые криптографические ключи (Private Key, Public Key, Short IDs).
+### Проверка настроек фаервола (UFW)
+Необходимо открыть порты
+```
+sudo ufw allow 443/tcp
+sudo ufw allow 80/tcp
+sudo ufw reload
+```
